@@ -1,0 +1,11 @@
+.bak
+
+build/
+
+# output run file
+labelGen.out
+
+# images, to be downloaded
+images/*.svg
+
+*.png

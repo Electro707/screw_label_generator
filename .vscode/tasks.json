@@ -1,0 +1,28 @@
+{
+    "tasks": [
+        {
+            "label": "Make",
+            "type": "shell",
+            "command": "make",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run",
+            "type": "shell",
+            "command": "./labelGen.out -n -t 'M3'",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Make and Run",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "Make",
+                "Run"
+            ],
+            "problemMatcher": []
+        }
+    ],
+    "version": "2.0.0"
+}
