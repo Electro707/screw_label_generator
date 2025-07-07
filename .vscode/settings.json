@@ -121,7 +121,10 @@
         "typeinfo": "cpp",
         "valarray": "cpp",
         "variant": "cpp",
-        "mixinvector": "cpp"
+        "mixinvector": "cpp",
+        "queue": "cpp",
+        "stack": "cpp",
+        "buffered_value": "cpp"
     },
     "C_Cpp.default.includePath": [
         "/usr/include/librsvg-2.0",

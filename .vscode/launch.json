@@ -6,7 +6,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceRoot}/labelGen.out",
-            "args": ["-n", "-t", "M3", "-s", "AB"],
+            "args": ["-n", "-s", "hex", "-t", "123"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "Make",

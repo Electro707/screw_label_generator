@@ -9,3 +9,6 @@ labelGen.out
 images/*.svg
 
 *.png
+
+# A folder for myself for generating multiple at a time
+scriptedOut/
