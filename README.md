@@ -4,6 +4,8 @@ This simple program generates a label with a screw head and some text. This also
 
 I made this program so I can print labels for my GridFinity screw setup to keep track of them.
 
+![image](.misc/IMG_8324.jpg)
+
 # Disclaimer
 
 This is my first real c++ application, so it's probably messy.
