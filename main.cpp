@@ -19,7 +19,9 @@ unordered_map<string, string> screwToFile = {
     {"flat", "images/head_flat.svg"},
     {"phillips", "images/head_phillips.svg"},
     {"hex-external", "images/hex_external.svg"},
-    {"nut", "images/nut_hex.svg"}
+    {"nut", "images/nut_hex.svg"},
+    {"standoff_ext", "images/standoff_in_out.svg"},
+    {"standoff_int", "images/standoff_in_in.svg"}
 };
 
 int pTouchInit(void){
@@ -105,12 +107,14 @@ int main(int argc, char **argv){
         ("s,screw", "Screw size to use", cxxopts::value<vector<string>>())
         ("t,text", "Text to Print", cxxopts::value<vector<string>>()->default_value({"TEST"}))
         ("n,dry", "Dry Run (only print to image), file name optional", cxxopts::value<string>()->implicit_value("test.png"))
+        ("isThreaded", "Set if the screw is threaded. Must be set to \"True\" or \"False\"", cxxopts::value<vector<bool>>())
         ("labelMargin", "Margin for the label", cxxopts::value<int>()->default_value("0"))
         ("elementXMargin", "Margin for the elements in the X direction", cxxopts::value<int>()->default_value("2"))
         ("elementYMargin", "Margin for the elements in the Y direction", cxxopts::value<int>()->default_value("2"))
     ;
 
     vector<string> screwHeads;
+    vector<bool> isThreadeds;
     vector<string> toPrintS;
     bool isSplit = false;
 
@@ -125,8 +129,13 @@ int main(int argc, char **argv){
         }
         
         if(argParse.count("screw")){
-
             screwHeads = argParse["screw"].as<vector<string>>();
+            isThreadeds = argParse["isThreaded"].as<vector<bool>>();
+
+            if(isThreadeds.size() != screwHeads.size()){
+                cout << "Thread and screw options must equal" << endl;
+                exit(0);
+            }
 
             if(screwHeads.size() > 2){
                 cout << "Unable to do more than 2 screw options" << endl;
@@ -161,9 +170,9 @@ int main(int argc, char **argv){
         }
 
         // cout << argParse["dry"].as<bool>() << endl;
-    }catch(cxxopts::exceptions::exception &e){
+    }catch(cxxopts::exceptions::parsing &e){
         cout << "Error in args: " << e.what() << endl;
-        return -1;
+        exit(-1);
     }
     
     int tapeWidth, tapeDpi;
@@ -207,6 +216,14 @@ int main(int argc, char **argv){
         screwImageP = getExecutablePath();
         screwImageP /= filesystem::path(screwToFile[screwHeads[0]]);
         imGen.addSvg(screwImageP);
+
+        if(argParse.count("isThreaded")){
+            if(isThreadeds[0]){
+                screwImageP = getExecutablePath();
+                screwImageP /= filesystem::path("images/threadedInsert.svg");
+                imGen.addSvg(screwImageP);
+            }
+        }
     }
     imGen.addText(toPrintS[0]);
 
@@ -217,6 +234,14 @@ int main(int argc, char **argv){
             screwImageP = getExecutablePath();
             screwImageP /= filesystem::path(screwToFile[screwHeads[1]]);
             imGen.addSvg(screwImageP);
+
+            if(argParse.count("isThreaded")){
+                if(isThreadeds[1]){
+                    screwImageP = getExecutablePath();
+                    screwImageP /= filesystem::path("images/threadedInsert.svg");
+                    imGen.addSvg(screwImageP);
+                }
+            }
         }
         imGen.addText(toPrintS[1]);
     }
