@@ -2,7 +2,7 @@ LDLAGS = -l ptouch
 LDLAGS += -lgd -lpng -lz -ljpeg -lfreetype -lm
 LDLAGS += `pkg-config --cflags --libs librsvg-2.0`
 
-CFLAGS = -Wall -g
+CFLAGS = -Wall -Wextra -g
 CFLAGS += `pkg-config --cflags-only-I --libs librsvg-2.0`
 
 BUILD_FOLDER = build

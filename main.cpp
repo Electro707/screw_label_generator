@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstring>
 #include <cmath>
+#include <cassert>
 #include "librsvg/rsvg.h"
 #include <cxxopts.hpp>
 #include "imageGen.h"
@@ -9,6 +10,10 @@
 extern "C" {
 #include "ptouch.h"
 }
+
+// the variables below depends on the label area on the gridfinity box
+#define PRINT_WIDTH     36  // mm, the width of the label area to print out
+#define PRINT_HEIGHT    8   // mm, the height of the label area to print
 
 using namespace std;
 
@@ -31,33 +36,44 @@ int pTouchInit(void){
     }
     if(ptouch_init(ptdev) != 0){
         cout << "Unable to initialize P-Touch device" << endl;
+        ptouch_close(ptdev);
         return -1;
     }
-    if(ptouch_getstatus(ptdev) != 0){
+    if(ptouch_getstatus(ptdev, ptdev->devinfo->min_timeout) != 0){
         cout << "Unable to get printer status" << endl;
+        ptouch_close(ptdev);
         return -1;
     }
 
     cout << "DPI of printer: " << ptdev->devinfo->dpi << endl;
-    cout << "maxPx of printer: " << ptdev->devinfo->max_px << endl;
+    cout << "maxPx of printer: " << ptouch_get_max_width(ptdev) << endl;
     return 0;
 }
 
 void pTouchPrint(cairo_surface_t *surface, int imageW, int imageH){
-    int offset, max_pixels;
+    int offset, max_pixels, rasterLineH;
     uint32_t pixel;
     int ySet;
 
     cairo_surface_flush(surface);
     uint32_t *imageDat = (uint32_t *)cairo_image_surface_get_data(surface);
 
-    int rasterLineH = (ptdev->devinfo->max_px)/8;
+    max_pixels = ptouch_get_max_width(ptdev);
+    rasterLineH = max_pixels/8;
+
+    printf("max_pixels: %d, rasterLineH: %d\n", max_pixels, rasterLineH);
+
     uint8_t rasterline[rasterLineH];
 
-    max_pixels=ptouch_get_max_width(ptdev);
     offset=((int)max_pixels / 2)-(imageH/2);	/* always print centered  */
 
     ptouch_rasterstart(ptdev);
+    if ((ptdev->devinfo->flags & FLAG_RASTER_PACKBITS) == FLAG_RASTER_PACKBITS) {
+		ptouch_enable_packbits(ptdev);
+	}
+    if ((ptdev->devinfo->flags & FLAG_D460BT_MAGIC) == FLAG_D460BT_MAGIC) {
+		ptouch_send_d460bt_magic(ptdev);
+	}
 
     for(int x=0;x<imageW;x++){
         memset(rasterline, 0, rasterLineH);
@@ -66,29 +82,27 @@ void pTouchPrint(cairo_surface_t *surface, int imageW, int imageH){
             ySet = y + offset;
 
             pixel = imageDat[x+((imageH-1-y)*imageW)];
-            pixel &= 0xFFFFFF;
             pixel &= 0xF0F0F0;  // use upper MSB for RGB to determine threshold if active (>grey) or not (<grey)
-            // printf("%x\n", pixel);
             if(pixel == 0){
                 rasterline[rasterLineH-1-(ySet/8)] |= (1 << (ySet%8));
             }
         }
 
-        if (ptouch_sendraster(ptdev, rasterline, 16) != 0) {
+        if (ptouch_sendraster(ptdev, rasterline, rasterLineH) != 0) {
             cout << "Error when printing to printer" << endl;
+            // todo: handle error
+            return;
         }
     }
 
-    // ptouch_eject(ptdev);
-    ptouch_ff(ptdev);
+    ptouch_finalize(ptdev, false);
 
     // wait for print to finish
     while(1){
-        ptouch_read_status(ptdev, 0);
-        if(ptdev->status->phase_type == 0 && ptdev->status->status_type == 6){
+        ptouch_getstatus_nosend(ptdev, 1);
+        if(ptdev->status->status_type == 0x01){
             break;
         }
-        usleep(1000);
     }
 }
 
@@ -99,13 +113,12 @@ filesystem::path getExecutablePath(void){
 int main(int argc, char **argv){
     cout << "Hello World!" << endl;
 
-
     cxxopts::Options options("GridFinity Screw Printer", "Prints label with an image for Gridfinity");
 
     options.add_options()
         ("h,help", "Print usage")
         ("s,screw", "Screw size to use", cxxopts::value<vector<string>>())
-        ("t,text", "Text to Print", cxxopts::value<vector<string>>()->default_value({"TEST"}))
+        ("t,text", "Text to Print", cxxopts::value<vector<string>>())
         ("n,dry", "Dry Run (only print to image), file name optional", cxxopts::value<string>()->implicit_value("test.png"))
         ("isThreaded", "Set if the screw is threaded. Must be set to \"True\" or \"False\"", cxxopts::value<vector<bool>>())
         ("labelMargin", "Margin for the label", cxxopts::value<int>()->default_value("0"))
@@ -117,6 +130,7 @@ int main(int argc, char **argv){
     vector<bool> isThreadeds;
     vector<string> toPrintS;
     bool isSplit = false;
+    bool isPrinter = false;
 
     cxxopts::ParseResult argParse;
     try{
@@ -127,14 +141,17 @@ int main(int argc, char **argv){
             cout << options.help() << endl;
             exit(0);
         }
-        
+
         if(argParse.count("screw")){
             screwHeads = argParse["screw"].as<vector<string>>();
-            isThreadeds = argParse["isThreaded"].as<vector<bool>>();
 
-            if(isThreadeds.size() != screwHeads.size()){
-                cout << "Thread and screw options must equal" << endl;
-                exit(0);
+            if(argParse.count("isThreaded")){
+                isThreadeds = argParse["isThreaded"].as<vector<bool>>();
+
+                if(isThreadeds.size() != screwHeads.size()){
+                    cout << "Thread and screw options must equal" << endl;
+                    exit(0);
+                }
             }
 
             if(screwHeads.size() > 2){
@@ -162,10 +179,15 @@ int main(int argc, char **argv){
             }
         }
 
-        toPrintS = argParse["text"].as<vector<string>>();
-
-        if(screwHeads.size() != toPrintS.size()){
-            cout << "You forgot to specify a text given a print size" << endl;
+        if(argParse.count("text")){
+            toPrintS = argParse["text"].as<vector<string>>();
+            if(screwHeads.size() != toPrintS.size()){
+                cout << "You forgot to specify a text for a screw" << endl;
+                exit(1);
+            }
+        }
+        else{
+            cout << "Did not give any text to be printed" << endl;
             exit(1);
         }
 
@@ -174,37 +196,36 @@ int main(int argc, char **argv){
         cout << "Error in args: " << e.what() << endl;
         exit(-1);
     }
-    
-    int tapeWidth, tapeDpi;
 
-    if(pTouchInit()){
+    int tapeHeight, tapeDpi;
+
+    if(pTouchInit() == 0){
+        tapeHeight = ptouch_get_tape_width(ptdev);      // what PTouch calls width is actually the height
+        cout << "Tape Width: " << tapeHeight << endl;
+        tapeDpi = ptdev->devinfo->dpi;
+        isPrinter = true;
+    } else {
         cout << "Unable to open printer" << endl;
         if(argParse.count("dry") == 0){
             cout << "Exiting" << endl;
             exit(1);
         }
-        cout << "Assuming a width of 76px, dpi of 180";
-        tapeWidth = 76;
+        cout << "Assuming a width of 76px, dpi of 180" << endl;
+        tapeHeight = 76;
         tapeDpi = 180;
-    } else {
-        tapeWidth = ptouch_get_tape_width(ptdev);
-        cout << "Tape Width: " << tapeWidth << endl;
-        tapeDpi = ptdev->devinfo->dpi;
     }
-    
+
     ImageGen imGen;
 
-    
     imGen.lbMargin = argParse["labelMargin"].as<int>();
     imGen.elementsXMargin = argParse["elementXMargin"].as<int>();
     imGen.elementsYMargin = argParse["elementYMargin"].as<int>();
 
-    imGen.setHeight(tapeWidth);
-    // todo: set as arguments
-    imGen.setWidthByMm(tapeDpi, 36);
-    imGen.setPrintableHeight(tapeDpi, 8);
+    imGen.setHeight(tapeHeight);
+    imGen.setWidthByMm(tapeDpi, PRINT_WIDTH);
+    imGen.setPrintableHeight(tapeDpi, PRINT_HEIGHT);
     imGen.initImage();
-    
+
     int secondSplitX = 0;
     if(isSplit){
         secondSplitX = imGen.setPrintableSplit();
@@ -215,13 +236,13 @@ int main(int argc, char **argv){
     if(argParse.count("screw")){
         screwImageP = getExecutablePath();
         screwImageP /= filesystem::path(screwToFile[screwHeads[0]]);
-        imGen.addSvg(screwImageP);
+        imGen.addSvg(screwImageP.string());
 
-        if(argParse.count("isThreaded")){
+        if(isThreadeds.size()){
             if(isThreadeds[0]){
                 screwImageP = getExecutablePath();
                 screwImageP /= filesystem::path("images/threadedInsert.svg");
-                imGen.addSvg(screwImageP);
+                imGen.addSvg(screwImageP.string());
             }
         }
     }
@@ -233,14 +254,17 @@ int main(int argc, char **argv){
         if(argParse.count("screw")){
             screwImageP = getExecutablePath();
             screwImageP /= filesystem::path(screwToFile[screwHeads[1]]);
-            imGen.addSvg(screwImageP);
+            imGen.addSvg(screwImageP.string());
 
-            if(argParse.count("isThreaded")){
+            if(isThreadeds.size()){
+                assert(isThreadeds.size() == 2);
                 if(isThreadeds[1]){
                     screwImageP = getExecutablePath();
                     screwImageP /= filesystem::path("images/threadedInsert.svg");
-                    imGen.addSvg(screwImageP);
+                    imGen.addSvg(screwImageP.string());
                 }
+            } else {
+                // intentional, no action
             }
         }
         imGen.addText(toPrintS[1]);
@@ -249,20 +273,21 @@ int main(int argc, char **argv){
     imGen.fitImageW();
     imGen.addEndDottedLines();
 
-    if (argParse.count("dry")){
+    if(argParse.count("dry")){
         string fName = argParse["dry"].as<string>();
         const char *fNameS = fName.c_str();
         printf("Dry run, saving to PNG %s\n", fNameS);
         if (cairo_surface_write_to_png (imGen.getCairoSurface(), fNameS) != CAIRO_STATUS_SUCCESS){
-            g_printerr ("could not write output file");
+            g_printerr("could not write output file");
         }
     }
     else {
-        pTouchPrint(imGen.getCairoSurface(), imGen.lbW, tapeWidth);
+        assert(isPrinter == true);
+        pTouchPrint(imGen.getCairoSurface(), imGen.lbW, tapeHeight);
     }
 
     // cleanup
-    if(ptdev->h){
+    if(isPrinter){
         ptouch_close(ptdev);
     }
 
